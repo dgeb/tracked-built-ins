@@ -1,5 +1,8 @@
+// eslint-disable-next-line ember/no-computed-properties-in-native-classes
+import { computed } from '@ember/object';
+
 import Component from '@glimmer/component';
-import { TrackedArray } from 'tracked-built-ins';
+import { TrackedArray, TrackedObject } from 'tracked-built-ins';
 import { expectTypeOf } from 'expect-type';
 
 import { setupRenderingTest } from 'ember-qunit';
@@ -9,6 +12,9 @@ import {
   eachReactivityTest,
   eachInReactivityTest,
 } from '../helpers/collection-reactivity';
+import { hbs } from 'ember-cli-htmlbars';
+import { render, settled } from '@ember/test-helpers';
+import { context } from '../support/context';
 
 const ARRAY_GETTER_METHODS = [
   'concat',
@@ -48,6 +54,71 @@ const ARRAY_SETTER_METHODS = [
 // We can use a `TrackedArray<T>` anywhere we can use an `Array<T>` (but not
 // vice versa).
 expectTypeOf<TrackedArray<unknown>>().toMatchTypeOf<Array<unknown>>();
+
+module('TrackedArray (interop)', (hooks) => {
+  setupRenderingTest(hooks);
+
+  class ContactCard {
+    contact: { location: string };
+
+    constructor(location: string) {
+      this.contact = new TrackedObject({ location });
+    }
+
+    @computed('contact.location') get location() {
+      return this.contact.location;
+    }
+
+    update(location: string) {
+      this.contact.location = location;
+    }
+  }
+
+  class Person {
+    info: { name: string };
+    cards = new TrackedArray<ContactCard>();
+
+    constructor(name: string) {
+      this.info = new TrackedObject({ name });
+    }
+
+    @computed('info.name')
+    get name() {
+      return this.info.name;
+    }
+
+    @computed('cards.[0].name')
+    get primaryLocation(): string | undefined {
+      return this.cards[0]?.location;
+    }
+
+    push(card: ContactCard) {
+      this.cards.push(card);
+    }
+
+    update(name: string) {
+      this.info.name = name;
+    }
+  }
+
+  test(
+    'setting an indexed property of a TrackedArray invalidates computed properties that have a dependent key on that property',
+    context<{ person: Person }>(async (ctx, assert) => {
+      ctx.person = new Person('Dan');
+
+      await render(hbs`{{this.person.primaryLocation}}`);
+
+      assert.dom().hasText('');
+
+      ctx.person.push(new ContactCard('NH'));
+
+      await settled();
+      assert.dom().hasText('NH');
+
+      // assert.dom().hasText('Daniel');
+    })
+  );
+});
 
 module('TrackedArray', function (hooks) {
   setupRenderingTest(hooks);
